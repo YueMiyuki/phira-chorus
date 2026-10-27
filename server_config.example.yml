@@ -1,5 +1,8 @@
 # Copy to server_config.yml. Every key is optional; these are the defaults
 
+# Port of the game server; the --port flag overrides it
+port: 12346
+
 # Users allowed to join rooms as monitors (they receive live play data)
 monitors: [2]
 
@@ -50,5 +53,17 @@ outbox_limit: 4194304
 command_rate: 100
 command_burst: 400
 
-# Period of the stats log line. 0 disables
+# Period of the stats log line, which is skipped while it would read the same
+# as the last one. 0 disables
 stats_interval_secs: 60
+
+# Address of the HTTP API, on a port of its own apart from the game port.
+# ":12347" is port 12347 on the game server's --bind address, so on IPv6 and
+# IPv4 by default; "127.0.0.1:12347" listens on that address alone. GET /api
+# there is a guide to it. Empty disables it
+http_addr: ""
+# Bearer tokens accepted by the HTTP API, by name. The name is logged
+# with each request. No tokens: every request is refused
+#   http_tokens:
+#     dashboard: some-long-random-string
+http_tokens: {}

@@ -1,0 +1,63 @@
+chorus HTTP API
+
+Every route under /v1 needs one of the server's tokens, sent as a bearer
+token:
+
+    Authorization: Bearer <token>
+
+A missing or unknown token gets 401 Unauthorized. Responses are JSON.
+
+
+GET /v1/rooms
+
+    The rooms on the server, ordered by room id.
+
+    curl -H "Authorization: Bearer <token>" https://api.phibot.dev/v1/rooms
+
+    {
+      "rooms": [
+        {
+          "roomid": "112233",
+          "cycle": false,
+          "lock": true,
+          "host": { "name": "泪稚苒", "id": "3461054" },
+          "state": "playing",
+          "chart": { "name": "星降る夜と一輪の花", "id": "69901" },
+          "players": [
+            { "name": "泪稚苒", "id": 3461054 },
+            { "name": "聆碎a", "id": 3462386 }
+          ]
+        }
+      ]
+    }
+
+    roomid   Room id
+    cycle    Whether the host passes to the next player after each game
+    lock     Whether the room refuses players who try to join
+    host     The host. Its id is a string
+    state    "select_chart", "waiting_for_ready" or "playing"
+    chart    The selected chart, or null until one is. Its id is a string
+    players  The players in the order they joined, monitors left out. Their
+             ids are numbers
+
+
+GET /v1/status
+
+    How the server is doing.
+
+    curl -H "Authorization: Bearer <token>" https://api.phibot.dev/v1/status
+
+    {
+      "status": "ok",
+      "players": 128,
+      "cpu": { "process": 3.5, "system": 12.5 },
+      "ram": { "process": 52428800, "used": 6442450944, "total": 17179869184 }
+    }
+
+    status   "ok" while the server is up
+    players  Players logged in, monitors included
+    cpu      Percent of the whole machine (all cores together) used by the
+             server process and by the machine as a whole, averaged over
+             the last 5 seconds
+    ram      Bytes of memory used by the server process and by the machine,
+             and the machine's total

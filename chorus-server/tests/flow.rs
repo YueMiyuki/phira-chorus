@@ -1,7 +1,7 @@
 use chorus_bench::mock_api::MockApi;
 use chorus_client::Connection;
 use chorus_proto::*;
-use chorus_server::{Config, Shared, bind, serve_with};
+use chorus_server::{Config, Shared, bind, serve_http, serve_with};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -1235,4 +1235,98 @@ async fn late_result_still_counts() {
     time::sleep(Duration::from_secs(1)).await;
     a.expect_quiet().await;
     b.expect_quiet().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_api_serves_token_holders() {
+    let srv = start(Duration::ZERO, |c| {
+        c.http_tokens.insert("dashboard".into(), "secret".into());
+    })
+    .await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let url = format!("{base}/v1/rooms");
+    tokio::spawn(serve_http(listener, Arc::clone(&srv.shared)));
+    let http = reqwest::Client::new();
+
+    for guide in ["api", "api/"] {
+        let res = http.get(format!("{base}/{guide}")).send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        assert!(res.text().await.unwrap().contains("GET /v1/rooms"));
+    }
+
+    let res = http.get(&url).send().await.unwrap();
+    assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let res = http.get(&url).bearer_auth("wrong").send().await.unwrap();
+    assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let rooms = async || -> serde_json::Value {
+        let res = http.get(&url).bearer_auth("secret").send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        res.json().await.unwrap()
+    };
+    assert_eq!(rooms().await, serde_json::json!({ "rooms": [] }));
+
+    let mut a = Client::login(srv.addr, 1).await;
+    let mut b = Client::login(srv.addr, 2).await;
+    let mut m = Client::login(srv.addr, MONITOR).await;
+    create(&mut a, 1, "r1").await;
+    join(&mut b, 2, "r1", false, &mut [&mut a]).await;
+    join(&mut m, MONITOR, "r1", true, &mut [&mut a, &mut b]).await;
+    let players = serde_json::json!([
+        { "name": "user1", "id": 1 },
+        { "name": "user2", "id": 2 },
+    ]);
+    assert_eq!(
+        rooms().await,
+        serde_json::json!({ "rooms": [{
+            "roomid": "r1",
+            "cycle": false,
+            "lock": false,
+            "host": { "name": "user1", "id": "1" },
+            "state": "select_chart",
+            "chart": null,
+            "players": players,
+        }] })
+    );
+
+    a.request(ClientCommand::SelectChart { id: 7 }).await;
+    a.request(ClientCommand::LockRoom { lock: true }).await;
+    a.request(ClientCommand::RequestStart).await;
+    b.request(ClientCommand::Ready).await;
+    m.request(ClientCommand::Ready).await;
+    assert_eq!(
+        rooms().await,
+        serde_json::json!({ "rooms": [{
+            "roomid": "r1",
+            "cycle": false,
+            "lock": true,
+            "host": { "name": "user1", "id": "1" },
+            "state": "playing",
+            "chart": { "name": "Chart 7", "id": "7" },
+            "players": players,
+        }] })
+    );
+
+    let status = format!("{base}/v1/status");
+    let res = http.get(&status).send().await.unwrap();
+    assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let res = http
+        .get(&status)
+        .bearer_auth("secret")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let status: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(status["status"], "ok");
+    assert_eq!(status["players"], 3);
+    for cpu in ["process", "system"] {
+        assert!(status["cpu"][cpu].is_f64(), "{status}");
+    }
+    let ram = |key: &str| status["ram"][key].as_u64().unwrap();
+    assert!(
+        0 < ram("process") && ram("process") <= ram("total"),
+        "{status}"
+    );
+    assert!(0 < ram("used") && ram("used") <= ram("total"), "{status}");
 }

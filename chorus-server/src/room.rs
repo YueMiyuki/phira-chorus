@@ -1,5 +1,6 @@
 use crate::{
     api::{Chart, Record},
+    http::{Named, RoomStatus},
     l10n::Text,
     outbox::Outbox,
     user::User,
@@ -76,6 +77,41 @@ impl Room {
 
     pub(crate) fn round(&self) -> u64 {
         self.inner.lock().round
+    }
+
+    /// `None` once the room is disbanded
+    pub(crate) fn status(&self) -> Option<RoomStatus> {
+        let inner = self.inner.lock();
+        if inner.disbanded {
+            return None;
+        }
+        let host = inner.players.iter().find(|it| it.id == inner.host);
+        Some(RoomStatus {
+            roomid: self.id.to_string(),
+            cycle: inner.cycle,
+            lock: inner.locked,
+            host: Named {
+                name: host.map_or_else(String::new, |it| it.name.clone()),
+                id: inner.host.to_string(),
+            },
+            state: match inner.phase {
+                Phase::SelectChart => "select_chart",
+                Phase::WaitForReady { .. } => "waiting_for_ready",
+                Phase::Playing { .. } => "playing",
+            },
+            chart: inner.chart.as_ref().map(|it| Named {
+                name: it.name.clone(),
+                id: it.id.to_string(),
+            }),
+            players: inner
+                .players
+                .iter()
+                .map(|it| Named {
+                    name: it.name.clone(),
+                    id: it.id,
+                })
+                .collect(),
+        })
     }
 
     pub(crate) fn with_snapshot<R>(&self, user: i32, f: impl FnOnce(ClientRoomState) -> R) -> R {

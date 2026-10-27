@@ -19,7 +19,7 @@ pub struct Stats {
     pub api_errors: AtomicU64,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Snapshot {
     pub accepted: u64,
     pub logins: u64,

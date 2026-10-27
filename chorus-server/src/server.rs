@@ -1,15 +1,16 @@
 use crate::{
     api::{Api, Profile},
     config::Config,
+    http::{RoomStatus, serve_http},
     l10n::{Lang, Text},
     logins::Logins,
     outbox::Outbox,
     room::{ROOM_NOT_FOUND, Room, respond},
     session,
-    stats::Stats,
+    stats::{Snapshot, Stats},
     user::{SessionLink, User},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chorus_proto::{Message, Reply, RoomId, ServerCommand, encode_frame};
 use dashmap::{DashMap, mapref::entry::Entry};
 use std::{
@@ -62,6 +63,14 @@ impl Shared {
 
     pub fn room_count(&self) -> usize {
         self.rooms.len()
+    }
+
+    /// Every room, ordered by id
+    pub(crate) fn room_statuses(&self) -> Vec<RoomStatus> {
+        // No room is locked while the map is
+        let mut rooms: Vec<_> = self.rooms.iter().map(|it| Arc::clone(&it)).collect();
+        rooms.sort_unstable_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+        rooms.iter().filter_map(|it| it.status()).collect()
     }
 
     pub(crate) fn next_session_id(&self) -> u64 {
@@ -300,6 +309,18 @@ pub async fn serve_with(
     shared: Arc<Shared>,
     shutdown: impl Future<Output = ()>,
 ) -> Result<()> {
+    let http = if let Some(addr) = shared.config.http_addr(listener.local_addr()?.ip())? {
+        let listener = bind(addr).with_context(|| format!("could not listen on {addr}"))?;
+        info!(%addr, "HTTP API listening");
+        let shared = Arc::clone(&shared);
+        Some(tokio::spawn(async move {
+            if let Err(err) = serve_http(listener, shared).await {
+                warn!(%err, "HTTP API stopped");
+            }
+        }))
+    } else {
+        None
+    };
     let max = shared.config.max_connections;
     let hard_max = max + max / 10 + 64;
     let reporter = (shared.config.stats_interval_secs > 0).then(|| {
@@ -343,6 +364,9 @@ pub async fn serve_with(
         let full = active as usize > max;
         tokio::spawn(session::run(Arc::clone(&shared), stream, peer, full));
     }
+    if let Some(http) = http {
+        http.abort();
+    }
     if let Some(reporter) = reporter {
         reporter.abort();
     }
@@ -366,26 +390,62 @@ async fn report_stats(shared: Arc<Shared>, every: Duration) {
     let mut ticker = time::interval(every);
     ticker.tick().await;
     let mut prev = shared.stats.snapshot();
+    let mut last = None;
     loop {
         ticker.tick().await;
         let now = shared.stats.snapshot();
         let delta = now.since(&prev);
         prev = now;
         let secs = every.as_secs_f64();
+        let per_sec = |n: u64, unit: f64| (n as f64 / unit / secs).round();
+        let (connections, users, rooms) = (
+            shared.stats.connections.load(Relaxed),
+            shared.online_users(),
+            shared.room_count(),
+        );
+        let traffic = [
+            per_sec(delta.frames_in, 1.),
+            per_sec(delta.frames_out, 1.),
+            per_sec(delta.bytes_in, 1024.),
+            per_sec(delta.bytes_out, 1024.),
+        ];
+        // Skip a line that would read the same as the last one, as an idle
+        // server's do. Traffic is compared as shown, rounded
+        let shown = (
+            (connections, users, rooms),
+            Snapshot {
+                frames_in: 0,
+                bytes_in: 0,
+                frames_out: 0,
+                bytes_out: 0,
+                ..delta
+            },
+            traffic,
+        );
+        if last.as_ref() == Some(&shown) {
+            continue;
+        }
+        last = Some(shown);
+        let [
+            frames_in_per_sec,
+            frames_out_per_sec,
+            kib_in_per_sec,
+            kib_out_per_sec,
+        ] = traffic;
         info!(
-            connections = shared.stats.connections.load(Relaxed),
-            users = shared.online_users(),
-            rooms = shared.room_count(),
+            connections,
+            users,
+            rooms,
             accepted = delta.accepted,
             logins = delta.logins,
             remembered_logins = delta.remembered_logins,
             abandoned_logins = delta.abandoned_logins,
             login_failures = delta.login_failures,
             revoked_logins = delta.revoked_logins,
-            frames_in_per_sec = (delta.frames_in as f64 / secs).round(),
-            frames_out_per_sec = (delta.frames_out as f64 / secs).round(),
-            kib_in_per_sec = (delta.bytes_in as f64 / 1024. / secs).round(),
-            kib_out_per_sec = (delta.bytes_out as f64 / 1024. / secs).round(),
+            frames_in_per_sec,
+            frames_out_per_sec,
+            kib_in_per_sec,
+            kib_out_per_sec,
             dropped_frames = delta.dropped_frames,
             kicked = delta.kicked,
             api_calls = delta.api_calls,

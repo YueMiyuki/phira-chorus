@@ -17,8 +17,12 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Args {
-    #[arg(short, long, default_value_t = 12346, help = "Port to listen on")]
-    port: u16,
+    #[arg(
+        short,
+        long,
+        help = "Port to listen on [default: `port` from the config, 12346]"
+    )]
+    port: Option<u16>,
     #[arg(
         long,
         default_value_t = IpAddr::V6(Ipv6Addr::UNSPECIFIED),
@@ -53,7 +57,7 @@ fn main() -> Result<()> {
         runtime.worker_threads(workers);
     }
     runtime.build()?.block_on(async move {
-        let addr = SocketAddr::new(args.bind, args.port);
+        let addr = SocketAddr::new(args.bind, args.port.unwrap_or(config.port));
         let listener = chorus_server::bind(addr)?;
         info!(%addr, api = %config.api_url, "listening");
         chorus_server::serve(listener, config, shutdown_signal()).await

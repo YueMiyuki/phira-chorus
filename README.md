@@ -28,7 +28,7 @@ The server keeps remembered logins in `logins.json` in its working directory
 
 | Flag | Default | |
 |---|---|---|
-| `-p, --port` | `12346` | Port to listen on |
+| `-p, --port` | `port` from the config | Port to listen on |
 | `--bind` | `::` | Address to bind; `::` accepts IPv6 and IPv4 |
 | `-c, --config` | `server_config.yml` | Config file; a missing file means defaults |
 | `--workers` | CPU cores | Runtime worker threads |
@@ -43,6 +43,7 @@ All keys are optional. See [`server_config.example.yml`](server_config.example.y
 
 | Key | Default | |
 |---|---|---|
+| `port` | `12346` | Port of the game server; `--port` overrides it |
 | `monitors` | `[2]` | User ids allowed to join rooms as monitors |
 | `api_url` | `https://phira.5wyxi.com` | Phira API used for logins, charts and records |
 | `room_max_users` | `8` | Player slots per room (monitors excluded) |
@@ -61,4 +62,60 @@ All keys are optional. See [`server_config.example.yml`](server_config.example.y
 | `outbox_lossy_limit` | `262144` | Queued bytes past which relayed live data is dropped for a slow connection |
 | `outbox_limit` | `4194304` | Queued bytes past which a connection is closed |
 | `command_rate` / `command_burst` | `100` / `400` | Per-connection request rate limit (pings excluded) |
-| `stats_interval_secs` | `60` | Period of the `stats` log line; `0` disables |
+| `stats_interval_secs` | `60` | Period of the `stats` log line, skipped while it would read the same as the last one; `0` disables |
+| `http_addr` | `""` | Address of the [HTTP API](#http-api), on its own port apart from the game port. `":12347"` is that port on the `--bind` address (IPv6 and IPv4 by default); empty disables |
+| `http_tokens` | `{}` | Bearer tokens the HTTP API accepts, by name; no tokens refuses every request |
+
+## HTTP API
+
+With `http_addr` set, the server also serves an HTTP API on that address,
+separate from the game port. `GET /api` returns a plain-text guide to it,
+with no token needed. Every other route is under `/v1`: `GET /v1/rooms` lists
+the rooms and `GET /v1/status` reports players online and CPU and memory use.
+Those routes need one of the `http_tokens` as `Authorization: Bearer <token>`;
+each request is logged with the name of its token.
+
+```yaml
+http_addr: ":12347"
+http_tokens:
+  dashboard: some-long-random-string
+```
+
+```shell
+curl -H "Authorization: Bearer some-long-random-string" http://localhost:12347/v1/rooms
+```
+
+```json
+{
+  "rooms": [
+    {
+      "roomid": "112233",
+      "cycle": false,
+      "lock": true,
+      "host": { "name": "泪稚苒", "id": "3461054" },
+      "state": "playing",
+      "chart": { "name": "星降る夜と一輪の花", "id": "69901" },
+      "players": [
+        { "name": "泪稚苒", "id": 3461054 },
+        { "name": "聆碎a", "id": 3462386 }
+      ]
+    }
+  ]
+}
+```
+
+`state` is `select_chart`, `waiting_for_ready` or `playing`; `chart` is `null`
+until one is selected. `players` leaves out monitors.
+
+```json
+{
+  "status": "ok",
+  "players": 128,
+  "cpu": { "process": 3.5, "system": 12.5 },
+  "ram": { "process": 52428800, "used": 6442450944, "total": 17179869184 }
+}
+```
+
+In `/v1/status`, `players` counts everyone logged in, monitors included. `cpu`
+is the percent of the whole machine used by the server and by everything,
+averaged over 5 seconds; `ram` is in bytes.
