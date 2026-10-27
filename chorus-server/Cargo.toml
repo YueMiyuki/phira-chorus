@@ -1,0 +1,43 @@
+[package]
+name = "chorus-server"
+description = "Multiplayer server for Phira, built to host thousands of concurrent players"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "chorus-server"
+path = "src/main.rs"
+
+[features]
+default = ["mimalloc"]
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+chorus-proto = { workspace = true }
+clap = { workspace = true }
+dashmap = "6.1"
+fastrand = { workspace = true }
+libc = "0.2"
+lru = "0.16"
+mimalloc = { version = "0.1", optional = true, default-features = false }
+parking_lot = "0.12"
+reqwest = { version = "0.13", features = ["json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+sha2 = "0.10"
+socket2 = { version = "0.6", features = ["all"] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = "0.2"
+tracing-subscriber = { workspace = true }
+webpki-root-certs = "1.0"
+
+[dev-dependencies]
+chorus-bench = { workspace = true }
+chorus-client = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

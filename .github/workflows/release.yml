@@ -1,0 +1,71 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { name: linux-arm64, target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+          - { name: macos-arm64, target: aarch64-apple-darwin, os: macos-latest }
+          - { name: macos-x86_64, target: x86_64-apple-darwin, os: macos-latest }
+          - { name: windows-x86_64, target: x86_64-pc-windows-msvc, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p chorus-server
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          NAME: ${{ matrix.name }}
+        run: |
+          dir="chorus-server-${GITHUB_REF_NAME}-${NAME}"
+          mkdir "$dir"
+          cp README.md LICENSE server_config.example.yml "$dir/"
+          if [[ "$TARGET" == *windows* ]]; then
+            cp "target/$TARGET/release/chorus-server.exe" "$dir/"
+            7z a "$dir.zip" "$dir"
+          else
+            cp "target/$TARGET/release/chorus-server" "$dir/"
+            tar czf "$dir.tar.gz" "$dir"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            chorus-server-*.tar.gz
+            chorus-server-*.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

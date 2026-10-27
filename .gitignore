@@ -1,0 +1,7 @@
+/target
+/log
+/dist
+/server_config.yml
+/logins.json
+/logins.json.tmp
+.DS_Store

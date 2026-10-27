@@ -1,0 +1,54 @@
+# Copy to server_config.yml. Every key is optional; these are the defaults
+
+# Users allowed to join rooms as monitors (they receive live play data)
+monitors: [2]
+
+# Phira API used for logins, charts and records
+api_url: https://phira.5wyxi.com
+
+room_max_users: 8
+max_connections: 30000
+
+# Seconds a disconnected player keeps their seat outside of a game
+reconnect_grace_secs: 10
+# Seconds a player who drops mid-game can reconnect into it. Others cannot
+# finish the game until then; 0 removes the player at once
+playing_grace_secs: 10
+# Seconds a new connection has to send its login. A login that is waiting
+# on Phira is never cut off
+login_timeout_secs: 30
+
+# Chart selections and result uploads wait this long for the API before the
+# player is answered (clients give up after 7 s). The lookup carries on: a
+# chart lands in the cache, a result still counts once it arrives. Logins
+# are not limited by this; they wait for as long as the player does
+api_wait_secs: 6
+# How long one lookup retries a slow or failing API before starting over
+api_retry_secs: 60
+# API requests in flight at once, for logins and for everything else
+api_concurrency: 128
+chart_cache_secs: 600
+chart_cache_size: 4096
+
+# Logins Phira confirmed this recently are reused without asking it again
+login_cache_secs: 60
+# Players who logged in within this many days get in at once, even while
+# Phira is slow or down; their token is re-checked in the background and the
+# connection is closed only if Phira says the token is invalid. 0: always
+# wait for Phira
+login_remember_days: 30
+login_cache_size: 100000
+# Remembered logins are saved here (as SHA-256 hashes of the tokens, never
+# the tokens) so they survive restarts. Empty disables saving
+login_store: logins.json
+
+# Per-connection outgoing queue limits, in bytes
+outbox_lossy_limit: 262144
+outbox_limit: 4194304
+
+# Per-connection request rate limit (pings excluded)
+command_rate: 100
+command_burst: 400
+
+# Period of the stats log line. 0 disables
+stats_interval_secs: 60
