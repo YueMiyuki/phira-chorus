@@ -12,7 +12,7 @@ GET /v1/rooms
 
     The rooms on the server, ordered by room id.
 
-    curl -H "Authorization: Bearer <token>" https://api.phibot.dev/v1/rooms
+    curl -H "Authorization: Bearer <token>" https://papi.phibot.dev/v1/rooms
 
     {
       "rooms": [
@@ -45,7 +45,7 @@ GET /v1/status
 
     How the server is doing.
 
-    curl -H "Authorization: Bearer <token>" https://api.phibot.dev/v1/status
+    curl -H "Authorization: Bearer <token>" https://papi.phibot.dev/v1/status
 
     {
       "status": "ok",
